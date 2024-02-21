@@ -11,14 +11,20 @@ main(int argc, char *argv[])
     int pid = fork();
 
     if (pid == 0) {
-        write(p[1], "ping", 1);
-        printf("%d: received ping\n", getpid());
+        read(p[0], buf, 4);
+        close(p[0]);
+        
+        printf("%d: received %s\n", getpid(), buf);
+        write(p[1], "pong", 4);
+        close(p[0]);
       
     } else {
-        write(p[1], "1", 1);
+        write(p[1], "ping", 4);
+        close(p[1]);
         wait(0);
-        read(p[0], buf, 1);
-        printf("%d: received pong\n", getpid());
+        read(p[0], buf, 4);
+        close(p[0]);
+        printf("%d: received %s\n", getpid(), buf);
     }
     exit(0);
 

@@ -1,16 +1,303 @@
+diff --git a/21125081_21125097.patch b/21125081_21125097.patch
+new file mode 100644
+index 0000000..f6252ee
+--- /dev/null
++++ b/21125081_21125097.patch
+@@ -0,0 +1,282 @@
++diff --git a/Makefile b/Makefile
++index 365c91b..6a70b78 100644
++--- a/Makefile
+++++ b/Makefile
++@@ -188,6 +188,11 @@ UPROGS=\
++ 	$U/_grind\
++ 	$U/_wc\
++ 	$U/_zombie\
+++	$U/_sleep\
+++	$U/_pingpong\
+++	$U/_find\
+++	$U/_xargs\
+++	$U/_primes\
++ 
++ 
++ 
++diff --git a/user/find.c b/user/find.c
++new file mode 100644
++index 0000000..8d7018e
++--- /dev/null
+++++ b/user/find.c
++@@ -0,0 +1,93 @@
+++#include "kernel/types.h"
+++#include "kernel/stat.h"
+++#include "user/user.h"
+++#include "kernel/fs.h"
+++#include "kernel/fcntl.h"
+++
+++char*
+++fmtname(char *path)
+++{
+++  char *p;
+++
+++  // Find first character after last slash.
+++  for(p=path+strlen(path); p >= path && *p != '/'; p--)
+++    ;
+++  p++;
+++
+++    return p;
+++}
+++
+++void
+++ls(char *path, char *name)
+++{
+++  char buf[512], *p;
+++  int fd;
+++  struct dirent de;
+++  struct stat st;
+++
+++  if((fd = open(path, O_RDONLY)) < 0){
+++    fprintf(2, "ls: cannot open %s\n", path);
+++    return;
+++  }
+++
+++  if(fstat(fd, &st) < 0){
+++    fprintf(2, "ls: cannot stat %s\n", path);
+++    close(fd);
+++    return;
+++  }
+++
+++    // find all the files in a directory tree with a specific name
+++    // and print their paths
+++    switch(st.type){
+++    case T_DEVICE:
+++    case T_FILE:
+++        if (strcmp(fmtname(path), name) == 0) {
+++            printf("%s\n", path);
+++        }
+++        break;
+++    case T_DIR:
+++        if(strlen(path) + 1 + DIRSIZ + 1 > sizeof buf){
+++            printf("ls: path too long\n");
+++            break;
+++        }
+++        strcpy(buf, path);
+++        p = buf+strlen(buf);
+++        *p++ = '/';
+++        while(read(fd, &de, sizeof(de)) == sizeof(de)){
+++            if(de.inum == 0)
+++                continue;
+++            memmove(p, de.name, DIRSIZ);
+++            p[DIRSIZ] = 0;
+++            if(stat(buf, &st) < 0){
+++                printf("ls: cannot stat %s\n", buf);
+++                continue;
+++            }
+++
+++            if (st.type == T_DIR) {
+++                if (strcmp(fmtname(buf), ".") == 0 || strcmp(fmtname(buf), "..") == 0) {
+++                    continue;
+++                }
+++                ls(buf, name);
+++            }
+++            else {
+++                if (strcmp(fmtname(de.name), name) == 0) {
+++                    printf("%s\n", buf);
+++                }               
+++            }
+++
+++
+++
+++        }
+++        break;
+++    }
+++    close(fd);
+++}
+++
+++int
+++main(int argc, char *argv[])
+++{
+++ 
+++ ls(argv[1], argv[2]);
+++
+++  exit(0);
+++}
++diff --git a/user/pingpong.c b/user/pingpong.c
++new file mode 100644
++index 0000000..57cbc68
++--- /dev/null
+++++ b/user/pingpong.c
++@@ -0,0 +1,27 @@
+++#include "kernel/types.h"
+++#include "kernel/stat.h"
+++#include "user/user.h"
+++
+++int
+++main(int argc, char *argv[])
+++{
+++    int p[2];
+++    pipe(p);
+++    char buf[512];
+++    int pid = fork();
+++
+++    if (pid == 0) {
+++        write(p[1], "ping", 1);
+++        printf("%d: received ping\n", getpid());
+++      
+++    } else {
+++        write(p[1], "1", 1);
+++        wait(0);
+++        read(p[0], buf, 1);
+++        printf("%d: received pong\n", getpid());
+++    }
+++    exit(0);
+++
+++
+++
+++}
++diff --git a/user/primes.c b/user/primes.c
++new file mode 100644
++index 0000000..e4169b0
++--- /dev/null
+++++ b/user/primes.c
++@@ -0,0 +1,47 @@
+++#include "kernel/types.h"
+++#include "kernel/stat.h"
+++#include "user/user.h"
+++
+++void eliminate(int p, int r, int w) {
+++	int n;
+++	while (read(r, &n, sizeof(n))) {
+++		if (n % p != 0) {
+++			write(w, &n, sizeof(n));
+++		}
+++	}
+++}
+++
+++void right(int r) {
+++	int p;
+++	if (read(r, &p, sizeof(p))) {
+++		printf("prime %d\n", p);
+++		int pd[2];
+++		pipe(pd);
+++		if (fork()) {
+++			close(pd[1]);
+++			right(pd[0]);
+++		}
+++		else {
+++			close(pd[0]);
+++			eliminate(p, r, pd[1]);
+++			close(pd[1]);
+++		}
+++	}
+++}
+++
+++int main(int argc, char **argv) {
+++	int pd[2];
+++	pipe(pd);
+++	if (fork()) {
+++		close(pd[1]);
+++		right(pd[0]);
+++	}
+++	else {
+++		close(pd[0]);
+++        for (int i = 2; i < 36; i++) {
+++            write(pd[1], &i, sizeof(i));
+++        }
+++        close(pd[1]);
+++	}
+++	exit(0);
+++}
++\ No newline at end of file
++diff --git a/user/sleep.c b/user/sleep.c
++new file mode 100644
++index 0000000..13dca42
++--- /dev/null
+++++ b/user/sleep.c
++@@ -0,0 +1,14 @@
+++#include "kernel/types.h"
+++#include "kernel/stat.h"
+++#include "user/user.h"
+++
+++int
+++main(int argc, char *argv[])
+++{
+++if(argc < 2){
+++  fprintf(2, "Usage: sleep for a new sec…\n");
+++  exit(-1);
+++}
+++sleep(atoi(argv[1]));
+++exit(1);
+++}
++diff --git a/user/xargs.c b/user/xargs.c
++new file mode 100644
++index 0000000..5970c61
++--- /dev/null
+++++ b/user/xargs.c
++@@ -0,0 +1,53 @@
+++#include "kernel/types.h"
+++#include "kernel/stat.h"
+++#include "user/user.h"
+++#include "kernel/param.h" // MAXARG
+++
+++int main(int argc, char *argv[])
+++{
+++  char reader;
+++  char buff[2048] = {0};
+++  char *p = buff;
+++  char *v[MAXARG];
+++  int c = 0;
+++  int blanks = 0;
+++  int offset = 0;
+++
+++  if (argc <= 1)
+++  {
+++    exit(1);
+++  }
+++
+++  for (c = 1; c < argc; c++)
+++  {
+++    v[c - 1] = argv[c];
+++  }
+++  c--;
+++  while (read(0, &reader, 1) > 0)
+++  {
+++    if (reader == ' ' || reader == '\t')
+++      blanks = 1;
+++    if (blanks)
+++    {
+++      buff[offset++] = '\0';
+++      v[c++] = p;
+++      p = buff + offset;
+++      blanks = 0;
+++    }
+++    if (reader != '\n')
+++      buff[offset++] = reader;
+++    else
+++    {
+++      v[c] = p;
+++      p = buff + offset;
+++      if (fork() == 0)
+++      {
+++        exec(v[0], v);
+++        exit(0);
+++      }
+++      wait(0);
+++      c = argc - 1;
+++    }
+++  }
+++  exit(0);
+++}
++\ No newline at end of file
 diff --git a/Makefile b/Makefile
-index 365c91b..6a70b78 100644
+index 7596f1e..6a70b78 100644
 --- a/Makefile
 +++ b/Makefile
-@@ -188,6 +188,11 @@ UPROGS=\
- 	$U/_grind\
- 	$U/_wc\
+@@ -190,6 +190,10 @@ UPROGS=\
  	$U/_zombie\
-+	$U/_sleep\
-+	$U/_pingpong\
+ 	$U/_sleep\
+ 	$U/_pingpong\
 +	$U/_find\
 +	$U/_xargs\
 +	$U/_primes\
++
  
  
  
@@ -114,38 +401,30 @@ index 0000000..8d7018e
 +  exit(0);
 +}
 diff --git a/user/pingpong.c b/user/pingpong.c
-new file mode 100644
-index 0000000..57cbc68
---- /dev/null
+index 57cbc68..e727162 100644
+--- a/user/pingpong.c
 +++ b/user/pingpong.c
-@@ -0,0 +1,27 @@
-+#include "kernel/types.h"
-+#include "kernel/stat.h"
-+#include "user/user.h"
-+
-+int
-+main(int argc, char *argv[])
-+{
-+    int p[2];
-+    pipe(p);
-+    char buf[512];
-+    int pid = fork();
-+
-+    if (pid == 0) {
-+        write(p[1], "ping", 1);
-+        printf("%d: received ping\n", getpid());
-+      
-+    } else {
-+        write(p[1], "1", 1);
-+        wait(0);
-+        read(p[0], buf, 1);
-+        printf("%d: received pong\n", getpid());
-+    }
-+    exit(0);
-+
-+
-+
-+}
+@@ -11,14 +11,20 @@ main(int argc, char *argv[])
+     int pid = fork();
+ 
+     if (pid == 0) {
++        read(p[0], buf, 4);
++        close(p[0]);
++        
++        printf("%d: received %s\n", getpid(), buf);
++        write(p[1], "pong", 4);
++        close(p[0]);
+       
+     } else {
++        write(p[1], "ping", 4);
++        close(p[1]);
+         wait(0);
++        read(p[0], buf, 4);
++        close(p[0]);
++        printf("%d: received %s\n", getpid(), buf);
+     }
+     exit(0);
+ 
 diff --git a/user/primes.c b/user/primes.c
 new file mode 100644
 index 0000000..e4169b0
@@ -200,26 +479,6 @@ index 0000000..e4169b0
 +	exit(0);
 +}
 \ No newline at end of file
-diff --git a/user/sleep.c b/user/sleep.c
-new file mode 100644
-index 0000000..13dca42
---- /dev/null
-+++ b/user/sleep.c
-@@ -0,0 +1,14 @@
-+#include "kernel/types.h"
-+#include "kernel/stat.h"
-+#include "user/user.h"
-+
-+int
-+main(int argc, char *argv[])
-+{
-+if(argc < 2){
-+  fprintf(2, "Usage: sleep for a new sec…\n");
-+  exit(-1);
-+}
-+sleep(atoi(argv[1]));
-+exit(1);
-+}
 diff --git a/user/xargs.c b/user/xargs.c
 new file mode 100644
 index 0000000..5970c61
